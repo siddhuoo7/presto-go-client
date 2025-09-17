@@ -965,10 +965,21 @@ func (c *typeConverter) ConvertValue(v interface{}) (driver.Value, error) {
 		}
 		return v, nil
 	case "array":
-		if err := validateSlice(v); err != nil {
-			return nil, err
+		switch val := v.(type) {
+		case nil:
+			return nil, nil
+		case string:
+			// Presto often returns array(...) as a JSON-encoded string
+			var arr []interface{}
+			if err := json.Unmarshal([]byte(val), &arr); err != nil {
+				return nil, fmt.Errorf("cannot parse array from string %q: %w", val, err)
+			}
+			return arr, nil
+		case []interface{}:
+			return val, nil
+		default:
+			return nil, fmt.Errorf("cannot convert %v (%T) to slice", v, v)
 		}
-		return v, nil
 	default:
 		return nil, fmt.Errorf("type not supported: %q", c.typeName)
 	}
@@ -980,16 +991,6 @@ func validateMap(v interface{}) error {
 	}
 	if _, ok := v.(map[string]interface{}); !ok {
 		return fmt.Errorf("cannot convert %v (%T) to map", v, v)
-	}
-	return nil
-}
-
-func validateSlice(v interface{}) error {
-	if v == nil {
-		return nil
-	}
-	if _, ok := v.([]interface{}); !ok {
-		return fmt.Errorf("cannot convert %v (%T) to slice", v, v)
 	}
 	return nil
 }
@@ -1110,29 +1111,29 @@ type NullSliceString struct {
 
 // Scan implements the sql.Scanner interface.
 func (s *NullSliceString) Scan(value interface{}) error {
-    if value == nil {
-        // keep behaviour consistent: Null => valid false, empty slice
-        s.SliceString = nil
-        s.Valid = false
-        return nil
-    }
+	if value == nil {
+		// keep behaviour consistent: Null => valid false, empty slice
+		s.SliceString = nil
+		s.Valid = false
+		return nil
+	}
 
-    vs, err := normalizeToInterfaceSlice(value)
-    if err != nil {
-        return fmt.Errorf("presto: cannot convert %v (%T) to []string: %v", value, value, err)
-    }
+	vs, err := normalizeToInterfaceSlice(value)
+	if err != nil {
+		return fmt.Errorf("presto: cannot convert %v (%T) to []string: %v", value, value, err)
+	}
 
-    slice := make([]sql.NullString, len(vs))
-    for i := range vs {
-        ns, err := scanNullString(vs[i]) // existing helper that turns an element into sql.NullString
-        if err != nil {
-            return err
-        }
-        slice[i] = ns
-    }
-    s.SliceString = slice
-    s.Valid = true
-    return nil
+	slice := make([]sql.NullString, len(vs))
+	for i := range vs {
+		ns, err := scanNullString(vs[i]) // existing helper that turns an element into sql.NullString
+		if err != nil {
+			return err
+		}
+		slice[i] = ns
+	}
+	s.SliceString = slice
+	s.Valid = true
+	return nil
 }
 
 // NullSlice2String represents a two-dimensional slice of string that may be null.
