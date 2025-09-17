@@ -1110,24 +1110,29 @@ type NullSliceString struct {
 
 // Scan implements the sql.Scanner interface.
 func (s *NullSliceString) Scan(value interface{}) error {
-	if value == nil {
-		return nil
-	}
-	vs, ok := value.([]interface{})
-	if !ok {
-		return fmt.Errorf("presto: cannot convert %v (%T) to []string", value, value)
-	}
-	slice := make([]sql.NullString, len(vs))
-	for i := range vs {
-		v, err := scanNullString(vs[i])
-		if err != nil {
-			return err
-		}
-		slice[i] = v
-	}
-	s.SliceString = slice
-	s.Valid = true
-	return nil
+    if value == nil {
+        // keep behaviour consistent: Null => valid false, empty slice
+        s.SliceString = nil
+        s.Valid = false
+        return nil
+    }
+
+    vs, err := normalizeToInterfaceSlice(value)
+    if err != nil {
+        return fmt.Errorf("presto: cannot convert %v (%T) to []string: %v", value, value, err)
+    }
+
+    slice := make([]sql.NullString, len(vs))
+    for i := range vs {
+        ns, err := scanNullString(vs[i]) // existing helper that turns an element into sql.NullString
+        if err != nil {
+            return err
+        }
+        slice[i] = ns
+    }
+    s.SliceString = slice
+    s.Valid = true
+    return nil
 }
 
 // NullSlice2String represents a two-dimensional slice of string that may be null.
